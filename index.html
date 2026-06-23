@@ -314,7 +314,7 @@ h1{font-size:18px;font-weight:500;margin-bottom:4px;color:var(--color-text-prima
 </div>
 
 <script>
-const CONF_SCHEDULE=[{name:"ICLR",mo:"Apr",moIdx:3,typical:"Late Apr",evenOnly:false,source:"arxiv"},{name:"ICRA",mo:"May",moIdx:4,typical:"Mid May",evenOnly:false,source:"icra_live"},{name:"CVPR",mo:"Jun",moIdx:5,typical:"Mid Jun",evenOnly:false,source:"cvf_live"},{name:"RSS",mo:"Jul",moIdx:6,typical:"Mid Jul",evenOnly:false,source:"rss_live"},{name:"ICML",mo:"Jul",moIdx:6,typical:"Mid Jul",evenOnly:false,source:"icml_live"},{name:"IROS",mo:"Sep",moIdx:8,typical:"Mid Sep",evenOnly:false,source:"arxiv"},{name:"CoRL",mo:"Oct",moIdx:9,typical:"Mid Oct",evenOnly:false,source:"arxiv"},{name:"ECCV",mo:"Oct",moIdx:9,typical:"Oct",evenOnly:true,source:"arxiv"},{name:"NeurIPS",mo:"Dec",moIdx:11,typical:"Early Dec",evenOnly:false,source:"arxiv"}];
+const CONF_SCHEDULE=[{name:"ICLR",mo:"Apr",moIdx:3,typical:"Late Apr",evenOnly:false,source:"arxiv"},{name:"ICRA",mo:"May",moIdx:4,typical:"Mid May",evenOnly:false,source:"icra_live"},{name:"CVPR",mo:"Jun",moIdx:5,typical:"Mid Jun",evenOnly:false,source:"cvpr_github"},{name:"RSS",mo:"Jul",moIdx:6,typical:"Mid Jul",evenOnly:false,source:"rss_live"},{name:"ICML",mo:"Jul",moIdx:6,typical:"Mid Jul",evenOnly:false,source:"icml_github"},{name:"IROS",mo:"Sep",moIdx:8,typical:"Mid Sep",evenOnly:false,source:"arxiv"},{name:"CoRL",mo:"Oct",moIdx:9,typical:"Mid Oct",evenOnly:false,source:"arxiv"},{name:"ECCV",mo:"Oct",moIdx:9,typical:"Oct",evenOnly:true,source:"arxiv"},{name:"NeurIPS",mo:"Dec",moIdx:11,typical:"Early Dec",evenOnly:false,source:"arxiv"}];
 const KNOWN_DATES={2026:{ICLR:{date:"Apr",loc:"Rio de Janeiro, BR"},ICRA:{date:"Jun 1",loc:"Vienna, Austria"},CVPR:{date:"Jun 11",loc:"Denver, CO"},RSS:{date:"Jul 13",loc:"Sydney, AU"},ICML:{date:"Jul 13",loc:"Seoul, KR"},IROS:{date:"Sep 14",loc:"Pittsburgh, PA"},CoRL:{date:"Oct 12",loc:"Austin, TX"},ECCV:{date:"Oct",loc:"Malmö, Sweden"},NeurIPS:{date:"Dec 7",loc:"Sydney, AU"}}};
 
 // Live source URLs per conference + year
@@ -395,12 +395,35 @@ async function fetchLivePapers(name,year,silent=false){
   try{
     let papers=[];
     if(src==='rss_live')papers=await fetchRSSPapers();
-    else if(src==='icml_live')papers=await fetchCVFStylePapers(`https://icml.cc/virtual/${year}/papers.html`);
+    else if(src==='icml_github')papers=await fetchGithubPaperList('icml',year);
+    else if(src==='cvpr_github')papers=await fetchGithubPaperList('cvpr',year);
     else if(src==='cvf_live')papers=await fetchCVFStylePapers(`https://cvpr.thecvf.com/virtual/${year}/papers.html`);
     else if(src==='icra_live')papers=await fetchICRAPapers(year);
     if(papers.length>0){paperCache[key]={papers,fetchedAt:Date.now()};savePaperCache();buildSidebar();}
     return papers;
   }catch(e){if(!silent)setStatus('error',`Could not fetch ${name} — using arXiv fallback`);return null;}
+}
+
+async function fetchGithubPaperList(conf,year){
+  const url=`https://raw.githubusercontent.com/hydrogenhy/AI_conference_paperlist/main/paper/${conf}_${year}_paper.txt`;
+  const r=await smartFetch(url);
+  const text=await r.text();
+  const papers=[];
+  // Split on the separator line or on blank lines between records
+  const blocks=text.split(/\n-{10,}\n|\r\n-{10,}\r\n/).map(b=>b.trim()).filter(b=>b.includes('Title:'));
+  blocks.forEach(block=>{
+    const titleMatch=block.match(/Title:\s*(.+)/);
+    const linkMatch=block.match(/Link:\s*(.+)/);
+    const authorsMatch=block.match(/Authors:\s*(.+)/);
+    const abstractMatch=block.match(/Abstract:\s*([\s\S]+?)(?=\nID:|\nTitle:|$)/);
+    if(!titleMatch)return;
+    const title=titleMatch[1].trim();
+    const link=linkMatch?linkMatch[1].trim():'';
+    const authors=authorsMatch?authorsMatch[1].trim().split(',').map(a=>a.trim()).filter(Boolean):[];
+    const abstract=abstractMatch?abstractMatch[1].trim():'';
+    if(title)papers.push({title,authors,link,abstract,affiliation:''});
+  });
+  return papers;
 }
 async function fetchRSSPapers(){const r=await smartFetch('https://roboticsconference.org/program/papers/');const html=await r.text();const doc=new DOMParser().parseFromString(html,'text/html');const rows=doc.querySelectorAll('table tr');const papers=[];rows.forEach(row=>{const cells=row.querySelectorAll('td');if(cells.length<4)return;const titleEl=cells[2]?.querySelector('a');const title=titleEl?.textContent?.trim()||'';if(!title)return;const authorsRaw=cells[3]?.textContent||'';const half=Math.ceil(authorsRaw.trim().length/2);const authorsStr=authorsRaw.trim().slice(0,half).trim().replace(/,\s*$/,'');const authors=authorsStr.split(',').map(a=>a.trim()).filter(Boolean);papers.push({title,authors,link:titleEl?.href||'',affiliation:'',abstract:''});});return papers;}
 async function fetchCVFStylePapers(url){const r=await smartFetch(url);const html=await r.text();const doc=new DOMParser().parseFromString(html,'text/html');const links=doc.querySelectorAll('li a[href*="/poster/"], li a[href*="/paper/"]');const papers=[];links.forEach(a=>{const title=a.textContent?.trim()||'';if(!title)return;papers.push({title,authors:[],link:a.href||a.getAttribute('href')||'',affiliation:'',abstract:''});});return papers;}
